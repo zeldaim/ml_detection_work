@@ -1,0 +1,23 @@
+# 웹 서버용 (Apache + PHP). 쇼핑몰 화면, v2 API, v1 레거시 API가 모두 이 컨테이너 하나에서 돈다.
+# 실행: sudo docker compose -f compose.web.yml up -d --build
+# DB 주소는 .env의 DB_HOST 한 줄로 관리한다.
+name: shop-web
+
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    environment:
+      DB_HOST: ${DB_HOST:?DB_HOST is required}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: shopdb
+      DB_USER: shopapp
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # v1 레거시(/api/v1/*)도 이 컨테이너 안에 있다. 접근 IP만 Apache 설정에서 이 대역으로 제한한다.
+      V1_ALLOWED_NET: ${V1_ALLOWED_NET:?V1_ALLOWED_NET is required}
+    ports:
+      - "${WEB_BIND:-0.0.0.0}:80:80"
+    volumes:
+      - ./logs:/var/www/html/logs
+      - ./logs/apache:/var/log/apache2

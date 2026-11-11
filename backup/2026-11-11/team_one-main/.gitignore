@@ -1,0 +1,35 @@
+# === VMware 가상머신 및 디스크 제외 ===
+VMware/
+vmware/
+*.vmdk
+*.vmx
+*.vmem
+*.vmsn
+*.nvram
+*.vmsd
+*.log
+
+# === 대용량 압축 파일 및 아카이브 ===
+*.7z
+*.zip
+*.tar.gz
+*.iso
+
+# === Python 캐시 및 가상환경 ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# === IDE 및 OS 임시 파일 ===
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
