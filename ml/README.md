@@ -12,11 +12,12 @@ alerts / archives / access.log ─▶ features.py ─▶ 피처 CSV ─▶ model
 
 | 파일 | 역할 |
 |---|---|
-| `features.py` | 로그 → IP × 구간 피처 표. alerts는 룰 알럿 피처, archives·nginx는 웹 요청 피처. `.gz`도 읽음. **`--requests`**: 공통 요청 JSONL(`normalize/`, 어떤 수집 방식이든) + `--key ip|user` |
+| `features.py` | 로그 → IP × 구간 피처 표. alerts는 룰 알럿 피처, archives·nginx는 웹 요청 피처. `.gz`도 읽음. **`--requests`**: 공통 요청 JSONL(`normalize/`, 어떤 수집 방식이든) + `--key ip|user`. **`--cum-hours H`**: 직전 H시간 누적 소유 객체 수 `uniq_objects_<H>h` 열 추가(느린 BOLA, `docs/33` §3) |
 | `relative_features.py` | (선택) **UEBA 상대 피처** — 출발지의 '평소 대비 배수' `rel_*` 열 추가(self/expanding/peer). features와 models 사이에 끼움. 절대 속도로 못 잡는 **자기 대비 급변(탈취형)**을 잡음 (`docs/21` §K). models·supervised 가 열을 자동 인식해 그대로 피처로 씀 |
 | `models.py` | 같은 피처 표로 **룰 비교군**(레이트리밋 / Wazuh 레벨 10+) · Z-score(robust) · Isolation Forest · LOF · One-Class SVM · Autoencoder 실행, 점수는 모두 "클수록 이상". 피처 열은 ip/window_start 뺀 전부 자동(= rel_* 포함) |
 | `evaluate.py` | 정답지로 구간 단위·IP 단위 TP/FP/FN/TN, Precision/Recall/F1, 공격별 탐지 여부 |
-| `supervised.py` | **지도(Random Forest) vs 비지도(Isolation Forest · LOF)** 비교 — 공격 사건·종류를 하나씩 빼고 학습해 "아는 공격 / 처음 보는 공격" 탐지율과 정상 오탐률 비교. IF\|LOF(OR)·IF&LOF(AND)·RF 조합과 "IF가 놓치고 LOF가 잡은 구간 수"도 집계 (`docs/12`) |
+| `supervised.py` | **지도(Random Forest) vs 비지도(Isolation Forest · LOF)** 비교 — 공격 사건·종류를 하나씩 빼고 학습해 "아는 공격 / 처음 보는 공격" 탐지율과 정상 오탐률 비교. IF\|LOF(OR)·IF&LOF(AND)·RF 조합과 "IF가 놓치고 LOF가 잡은 구간 수"도 집계 (`docs/12`). 기본 **출발지 단위 분할**(`--split ip`, 이전 시각순은 `--split time`, `docs/33` §1) |
+| `shortcut_auc.py` | **지름길 진단** — 피처 하나만으로 정상/공격이 갈리는지 단일 피처 AUC(전체·종류별). numpy만 (`docs/33` §2) |
 | `train_export.py` | **학습된 모델을 .joblib로 저장** — 정상 데이터로 IF·LOF, 정답지 있으면 RF까지 학습해 스케일러·피처순서·설정과 함께 묶어 저장 (배포·인수인계용) |
 | `predict.py` | 저장된 .joblib를 불러 **학습 없이** 새 피처에 IF·LOF·AE·RF 판정. `--block-file`로 이상 출발지 기록(차단 연계용, 아직 미연결 — `docs/30`) |
 | `classify_type.py` | **RF 다중 분류** — 공격 종류(normal/brute_fast/bola…)를 이름까지 맞히는지. 사건 하나씩 빼고 예측 → 종류 정확도·혼동행렬. 비지도는 발견, RF는 종류 분류 (`docs/12` §6-2) |
