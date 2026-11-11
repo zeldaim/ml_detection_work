@@ -69,6 +69,11 @@ def main():
                     help="[--split time] 정상 구간 중 학습에 쓸 앞쪽 비율")
     ap.add_argument("--contamination", type=float, default=0.1, help="IF·LOF 이상 비율")
     ap.add_argument("--drop", nargs="*", default=[], help="뺄 피처")
+    ap.add_argument("--train-only-prefix", default=None,
+                    help="[--split ip] 이 접두어 IP 는 평가 후보에서 빼고 항상 정상 학습에만 (예: 10.30. = OTTO 재생 출발지)")
+    ap.add_argument("--test-only-prefix", default=None,
+                    help="[--split ip] 이 접두어 IP 는 학습에 안 쓰고 항상 정상 평가에만 (생성기로 학습 → 재생 정상 오탐 측정)")
+    ap.add_argument("--exclude-prefix", default=None, help="이 접두어 IP 의 행을 통째로 뺀다 (기준선용)")
     args = ap.parse_args()
 
     import numpy as np
@@ -78,6 +83,8 @@ def main():
     from sklearn.preprocessing import StandardScaler
 
     rows = list(csv.DictReader(open(args.features, encoding="utf-8")))
+    if args.exclude_prefix:
+        rows = [r for r in rows if not r["ip"].startswith(args.exclude_prefix)]
     cols = [c for c in rows[0] if c not in ("ip", "window_start") and c not in args.drop]
     X = np.array([[float(r[c] or 0) for c in cols] for r in rows])
     labels = label_windows(rows, load_answer(args.answer), timedelta(minutes=args.window))
@@ -96,16 +103,23 @@ def main():
         split_note = f"time (정상 구간 앞 {args.normal_train:.0%} 학습)"
     else:
         attacker_ips = {rows[i]["ip"] for idx in groups.values() for i in idx}
-        benign_ips = sorted({rows[i]["ip"] for i in normal} - attacker_ips)
+        all_benign = sorted({rows[i]["ip"] for i in normal} - attacker_ips)
+        fixed_train = {ip for ip in all_benign if args.train_only_prefix and ip.startswith(args.train_only_prefix)}
+        fixed_test = {ip for ip in all_benign if args.test_only_prefix and ip.startswith(args.test_only_prefix)}
+        # 평가 후보 = 고정 지정이 없는 정상 출발지. 접두어 출발지를 더해도 후보 목록이 같으면 같은 시드 = 같은 평가셋(기준선과 공정 비교)
+        benign_ips = [ip for ip in all_benign if ip not in fixed_train and ip not in fixed_test]
         if len(benign_ips) < 2:
             sys.exit(f"정상 출발지가 {len(benign_ips)}개 — 출발지 단위 분할에는 2개 이상 필요 (--split time 으로 이전 방식)")
         rng = np.random.RandomState(args.seed)
         n_test = min(len(benign_ips) - 1, max(1, round(len(benign_ips) * args.normal_test)))
         test_ips = set(rng.choice(benign_ips, n_test, replace=False))
-        normal_train = [i for i in normal if rows[i]["ip"] not in attacker_ips and rows[i]["ip"] not in test_ips]
-        normal_test = [i for i in normal if rows[i]["ip"] in test_ips]
+        normal_train = [i for i in normal if rows[i]["ip"] not in attacker_ips and rows[i]["ip"] not in test_ips
+                        and rows[i]["ip"] not in fixed_test]
+        normal_test = [i for i in normal if rows[i]["ip"] in test_ips or rows[i]["ip"] in fixed_test]
         attacker_normal = [i for i in normal if rows[i]["ip"] in attacker_ips]  # 공격 출발지의 공격 시간 밖 구간
-        split_note = (f"ip (정상 출발지 {len(benign_ips)}개 중 평가 {n_test}개: {', '.join(sorted(test_ips))})")
+        split_note = (f"ip (정상 출발지 {len(benign_ips)}개 중 평가 {n_test}개: {', '.join(sorted(test_ips))})"
+                      + (f" + 학습 전용 {len(fixed_train)}개({args.train_only_prefix}*)" if fixed_train else "")
+                      + (f" + 평가 전용 {len(fixed_test)}개({args.test_only_prefix}*)" if fixed_test else ""))
     if len(normal_train) < 5 or not normal_test:
         sys.exit("정상 구간이 너무 적음")
 
@@ -130,7 +144,9 @@ def main():
         if not train_attack:
             print(f"{g[:25]:<26}  건너뜀 — 이 묶음을 빼면 학습할 공격 구간이 없음 (같은 출발지가 다른 묶음 전부에도 있음)")
             continue
-        k = max(2, min(20, len(fold_normal) - 1))
+        # LOF 는 같은 점이 이웃 수보다 많으면 밀도가 무한대가 되어 판정이 깨진다(sklearn 문서) → LOF 학습은 고유 행만 (docs/35 §2)
+        lof_train = np.unique(X[fold_normal], axis=0)
+        k = max(2, min(20, len(lof_train) - 1))
         tr = fold_normal + train_attack
         y = np.array([0] * len(fold_normal) + [1] * len(train_attack))
         rf = RandomForestClassifier(n_estimators=300, class_weight="balanced", random_state=0)
@@ -141,7 +157,7 @@ def main():
         iso.fit(X[fold_normal])
         scaler = StandardScaler().fit(X[fold_normal])  # LOF는 거리 기반 → 정상 기간 기준 스케일링
         lof = LocalOutlierFactor(n_neighbors=k, contamination=args.contamination, novelty=True)
-        lof.fit(scaler.transform(X[fold_normal]))
+        lof.fit(scaler.transform(lof_train))
         # Autoencoder: 정상을 압축→복원 학습, 재구성 오차 큰 점이 이상 (sklearn MLP로 구현)
         bottleneck = max(2, X.shape[1] // 2)
         ae = MLPRegressor(hidden_layer_sizes=(bottleneck,), activation="relu",
