@@ -1,30 +1,34 @@
 #!/usr/bin/env bash
 # docs/35 재현 — Docker 이미지(ml-detection)에서:
 #   MSYS_NO_PATHCONV=1 docker run --rm -v "D:/ml_detection:/app" ml-detection bash /app/docs/35_결과/run.sh
-# 입력: data/feat_canon_otto.csv = features.py --nginx <real_canon 원본> --nginx data/otto_replay_s0.log
+# 인자: 피처 CSV (기본 data/feat_canon_otto.csv = features.py --nginx <real_canon 원본> --nginx data/otto_replay_s0.log)
+#   다른 재생 시드: bash /app/docs/35_결과/run.sh data/feat_canon_otto_s1.csv
 set -e
 cd /app
-F=data/feat_canon_otto.csv; A=datasets/real_web/real_canon_answer.csv
+F=${1:-data/feat_canon_otto.csv}; A=datasets/real_web/real_canon_answer.csv
 C="--group-by type --contamination 0.05"
 echo "### 지름길: OTTO 재생 정상(10.30.*) vs 생성기·공격 전체 — 공격 출발지 행은 빼고 정상끼리"
-python - <<'PY'
+F=$F python - <<'PY'
 import csv
-rows=[r for r in csv.DictReader(open("data/feat_canon_otto.csv")) if not r["ip"].startswith("10.16.1.2")]
+import os
+rows=[r for r in csv.DictReader(open(os.environ["F"])) if not r["ip"].startswith("10.16.1.2")]
 csv.writer(open("/tmp/normals.csv","w",newline="")).writerows([list(rows[0])]+[list(r.values()) for r in rows])
 PY
-python ml/shortcut_auc.py /tmp/normals.csv docs/35_결과/otto_as_label.csv
+awk -F, 'NR>1 && $1 ~ /^10\.30\./ {print $1}' $F | sort -u | awk 'BEGIN{print "ip,label,type"}{print $1",attack,otto_replay"}' > /tmp/otto_as_label.csv
+python ml/shortcut_auc.py /tmp/normals.csv /tmp/otto_as_label.csv
 for s in 0 1 2 3 4; do
   echo "################ A 기준선 seed $s"; python ml/supervised.py $F --answer $A $C --seed $s --exclude-prefix 10.30. | sed -n '/분할/p;/합계/,/H5/p'
   echo "################ B 재생 학습추가 seed $s"; python ml/supervised.py $F --answer $A $C --seed $s --train-only-prefix 10.30. | sed -n '/분할/p;/합계/,/H5/p'
 done
 echo "################ C 생성기 정상으로만 학습 → 재생 정상 오탐 (회차 무관, 공격 라벨 미사용)"
-python - <<'PY'
+F=$F python - <<'PY'
 import csv, numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
-rows=list(csv.DictReader(open("data/feat_canon_otto.csv")))
+import os
+rows=list(csv.DictReader(open(os.environ["F"])))
 cols=[c for c in rows[0] if c not in ("ip","window_start")]
 X=lambda rs: np.array([[float(r[c] or 0) for c in cols] for r in rs])
 gen=[r for r in rows if r["ip"].startswith("10.16.1.1")]            # 생성기 정상 출발지(101~132)
