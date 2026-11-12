@@ -13,6 +13,9 @@
   alerts : alert_count, rule_level_max, uniq_rules, auth_fail, uniq_users
   웹     : req_count, max_req_1min, uniq_paths, uniq_objects, err_ratio, write_ratio,
            interval_cv, endpoint_entropy, ssh_fail(archives에서만 채워짐)
+  누적   : uniq_objects_<H>h (--cum-hours H 를 줄 때만) — 이 구간 끝 시각까지 직전 H시간 동안
+           그 출발지가 건드린 소유 자원 객체의 서로 다른 수 (구간별 수의 합이 아니라 합집합).
+           과거만 본다(미래 구간 안 씀). 느린 BOLA 는 구간 하나엔 정상만큼만 남아도 시간이 지나면 쌓인다.
 
 사용:
   python ml/features.py --alerts samples/sample_alerts_if.json --out data/features_alerts.csv
@@ -216,6 +219,24 @@ def add_requests(path, windows, win_sec, key="ip"):
     return used, skipped
 
 
+def cumulative_objects(windows, win_sec, lookback_sec):
+    """(ip, 구간 시작) → 구간 끝 시각 기준 직전 lookback_sec 동안의 소유 객체 합집합 크기.
+    구간 [ws, ws+win) 의 끝 = ws+win. 포함 조건: 다른 구간의 시작 >= ws+win-lookback (그리고 <= ws).
+    lookback 이 구간 길이의 배수면 정확히 lookback, 아니면 구간 경계로 잘려 조금 짧아진다."""
+    by_ip = defaultdict(list)
+    for (ip, ws), w in windows.items():
+        by_ip[ip].append((ws, w.objects))
+    out = {}
+    for ip, items in by_ip.items():
+        items.sort(key=lambda t: t[0])
+        lo = 0
+        for hi, (ws, _) in enumerate(items):
+            while items[lo][0] < ws + win_sec - lookback_sec:
+                lo += 1
+            out[(ip, ws)] = len(set().union(*(objs for _, objs in items[lo:hi + 1])))
+    return out
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -232,7 +253,11 @@ def main():
     ap.add_argument("--owned-path", action="append", default=[],
                     help="uniq_objects로 셀 소유 자원 경로 템플릿 (여러 번 가능, 주면 기본 목록을 대체). "
                          "예: --owned-path /api/Orders/{id}")
+    ap.add_argument("--cum-hours", type=float, default=0,
+                    help="주면 uniq_objects_<H>h 열 추가 (직전 H시간 누적 소유 객체 수). 기본 0 = 열 없음(기존 스키마 유지)")
     args = ap.parse_args()
+    if args.cum_hours < 0:
+        ap.error("--cum-hours 는 0 이상")
     if args.owned_path:
         bad = [p for p in args.owned_path if not p.startswith("/")]
         if bad:   # Git Bash 는 /로 시작하는 인자를 C:/Program Files/Git/... 로 바꾼다 → uniq_objects 가 조용히 0
@@ -259,12 +284,18 @@ def main():
 
     has_web = bool(args.archives or args.nginx or args.requests)
     cols = (ALERT_FEATURES if args.alerts else []) + (WEB_FEATURES if has_web else [])
+    cum = {}
+    if args.cum_hours and has_web:
+        cols.append(f"uniq_objects_{args.cum_hours:g}h")
+        cum = cumulative_objects(windows, win_sec, args.cum_hours * 3600)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", newline="", encoding="utf-8") as f:
         wr = csv.writer(f)
         wr.writerow(["ip", "window_start"] + cols)
         for (ip, ws), w in sorted(windows.items(), key=lambda kv: (kv[0][1], kv[0][0])):
             row = (w.alert_row() if args.alerts else []) + (w.web_row() if has_web else [])
+            if cum:
+                row.append(cum[(ip, ws)])
             start = datetime.fromtimestamp(ws, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             wr.writerow([ip, start] + row)
 
