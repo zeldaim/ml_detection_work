@@ -22,6 +22,7 @@
 - **결함 수정:** `train_export.py` 가 IP형 정답지(`ip,label,type`)를 무시해 v3 는 **공격 32구간을 정상으로 학습**했다(n_normal 246).
   같은 데이터 in-sample 에서 LOF 8/32 → v3.1 28/32. 이제 `supervised.label_windows` 공유 + 매칭 0건이면 학습 중단.
 - **성능:** IF|LOF|AE 0.91±0.04 · LOF 0.88 · 평가 정상 오탐 0/65 (seed 10개). 상세 [MODEL_CARD.md](MODEL_CARD.md), 근거 `docs/27`.
+- **정정(2026-11-15):** '오탐 0/65'는 시각순 분할의 누수. 출발지 단위 분할에서 오탐 10~15% — [MODEL_CARD.md](MODEL_CARD.md) §4-0, `docs/33`·`docs/37`.
 - 이전: `archive/model_web_v3_canon_rel_trained-with-attacks.joblib` (v3, 결함 그대로 보존)
 
 ### v2 — 2026-10-24 · Autoencoder 추가
