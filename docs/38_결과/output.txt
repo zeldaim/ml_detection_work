@@ -1,0 +1,36 @@
+
+룰: 5분에 로그인 ≥3 그리고 로그인 비율 ≥100%
+  normal          0/214
+  bola            0/5
+  bola_fast       0/2
+  bola_slow       0/6
+  brute_fast      2/5
+  brute_slow      4/5
+  harvest         0/2
+  harvest_slow    0/3
+  scanning        0/2
+  user_enum       0/2
+
+룰: 5분에 로그인 ≥3 그리고 로그인 비율 ≥90%
+  normal          0/214
+  bola            0/5
+  bola_fast       0/2
+  bola_slow       0/6
+  brute_fast      4/5
+  brute_slow      4/5
+  harvest         0/2
+  harvest_slow    0/3
+  scanning        0/2
+  user_enum       0/2
+
+룰: 5분에 로그인 ≥2 그리고 로그인 비율 ≥80%
+  normal          0/214
+  bola            0/5
+  bola_fast       0/2
+  bola_slow       0/6
+  brute_fast      4/5
+  brute_slow      5/5
+  harvest         0/2
+  harvest_slow    0/3
+  scanning        0/2
+  user_enum       0/2
